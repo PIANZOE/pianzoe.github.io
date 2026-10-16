@@ -48,6 +48,7 @@ h1{margin:0}
 .bar i{display:block;height:100%;width:0;background:var(--felt)}
 .meter{height:.3rem;background:var(--line);border-radius:999px;overflow:hidden;margin:-.6rem auto 1.1rem;max-width:24rem}
 .meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .08s linear}
+.diag{font-size:.75rem;color:var(--soft);margin:-.6rem 0 .8rem;min-height:1.2em}
 .hear{font-size:.95rem;color:var(--soft);margin:-.4rem 0 1rem;min-height:1.5em}
 .hear b{color:var(--ink)}
 
@@ -87,6 +88,7 @@ legend{font-weight:600;margin-bottom:.4rem}
     <div class="bar"><i id="bar"></i></div>
     <div class="meter" aria-hidden="true"><i id="meter"></i></div>
     <p class="hear" id="hear"></p>
+    <p class="diag" id="diag"></p>
     <div class="piano" id="piano" aria-hidden="true"></div>
   </section>
 
@@ -166,7 +168,7 @@ async function initMic(){
   if(analyser)return true;
   if(!navigator.mediaDevices?.getUserMedia){micError("Este navegador no permite usar el micrófono aquí.");return false;}
   try{
-    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:true}});
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
     if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();
     const src=ctx.createMediaStreamSource(stream);
     analyser=ctx.createAnalyser();analyser.fftSize=2048;src.connect(analyser);
@@ -205,6 +207,7 @@ function detect(raw,sr){
   }
   if(!peaks.length)return null;
   let mx=0;peaks.forEach(p=>{if(n[p]>mx)mx=n[p];});
+  lastClar=mx;
   if(mx<0.5)return null;
   const p=peaks.find(p=>n[p]>=0.88*mx);
   const a=n[p-1],c=n[p+1],d=a-2*n[p]+c;
@@ -212,19 +215,22 @@ function detect(raw,sr){
   return {f:sr/T,clarity:n[p]};
 }
 let frame=0;
+let lastClar=0;
 function loop(){
   requestAnimationFrame(loop);
   if(!listening||(frame++%2)){ if(!listening)$("meter").style.width="0"; return; }
   analyser.getFloatTimeDomainData(buf);
   let lv=0;for(let i=0;i<buf.length;i+=4)lv+=buf[i]*buf[i];lv=Math.sqrt(lv/(buf.length/4));
   $("meter").style.width=Math.min(100,Math.sqrt(lv/0.05)*100)+"%";
-  const r=detect(buf,ctx.sampleRate);
-  if(!r||r.f<62||r.f>4200)return;
+  lastClar=0;const r=detect(buf,ctx.sampleRate);
+  const dg=$("diag");
+  if(dg) dg.textContent="Micrófono: nivel "+Math.round(lv*1000)+" · "+(r?Math.round(r.f)+" Hz ("+PC_NAMES[((Math.round(12*Math.log2(r.f/440)+69)%12)+12)%12]+") claridad "+r.clarity.toFixed(2):"sin tono claro ("+lastClar.toFixed(2)+")");
+  if(!r||r.f<62||r.f>2100)return;
   const midi=Math.round(12*Math.log2(r.f/440)+69),pc=((midi%12)+12)%12;
   counts[pc]=(counts[pc]||0)+1;
   if($("optHear").checked){
     let best=null,bn=0;for(const k in counts)if(counts[k]>bn){bn=counts[k];best=+k;}
-    if(bn>=3){hearEl.innerHTML="Oigo: <b>"+PC_NAMES[best]+"</b>";keys(null,best);}
+    if(bn>=2){hearEl.innerHTML="Oigo: <b>"+PC_NAMES[best]+"</b>";keys(null,best);}
   }
 }
 /* Ronda */
@@ -248,7 +254,7 @@ async function round(id){
   listening=false;barEl.style.width="100%";
 
   let best=null,bestN=0;for(const k in counts)if(counts[k]>bestN){bestN=counts[k];best=+k;}
-  if(bestN<3)best=null;
+  if(bestN<2)best=null;
   tries++;noteEl.textContent=n.sym;keys(n.s,best);
   hearEl.innerHTML=best===null?"Oigo: —":"Ha tocado: <b>"+PC_NAMES[best]+"</b>";
   if(best===n.s){

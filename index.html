@@ -46,6 +46,8 @@ h1{margin:0}
 .hint{color:var(--soft);margin:.2rem 0 1rem;min-height:1.5em;font-size:.95rem}
 .bar{height:.4rem;background:var(--line);border-radius:999px;overflow:hidden;margin:0 auto 1.1rem;max-width:24rem}
 .bar i{display:block;height:100%;width:0;background:var(--felt)}
+.meter{height:.3rem;background:var(--line);border-radius:999px;overflow:hidden;margin:-.6rem auto 1.1rem;max-width:24rem}
+.meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .08s linear}
 .hear{font-size:.95rem;color:var(--soft);margin:-.4rem 0 1rem;min-height:1.5em}
 .hear b{color:var(--ink)}
 
@@ -83,6 +85,7 @@ legend{font-weight:600;margin-bottom:.4rem}
     <p class="verdict" id="verdict" aria-live="polite"></p>
     <p class="hint" id="hint">Pulsa Empezar y permite el micrófono.</p>
     <div class="bar"><i id="bar"></i></div>
+    <div class="meter" aria-hidden="true"><i id="meter"></i></div>
     <p class="hear" id="hear"></p>
     <div class="piano" id="piano" aria-hidden="true"></div>
   </section>
@@ -163,7 +166,7 @@ async function initMic(){
   if(analyser)return true;
   if(!navigator.mediaDevices?.getUserMedia){micError("Este navegador no permite usar el micrófono aquí.");return false;}
   try{
-    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:true}});
     if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();
     const src=ctx.createMediaStreamSource(stream);
     analyser=ctx.createAnalyser();analyser.fftSize=2048;src.connect(analyser);
@@ -172,18 +175,19 @@ async function initMic(){
   }catch(e){micError("No se pudo usar el micrófono. Permite el acceso en el navegador; si no aparece la opción, descarga la página y ábrela en Chrome.");return false;}
 }
 function micError(msg){$("micWarn").textContent=msg;$("micWarn").hidden=false;}
-const RMS=[0,0.03,0.012,0.005];
+const RMS=[0,0.004,0.0015,0.0006];
 const W=1024,MAXLAG=1024;
 const HP=new Float32Array(2048);
 function detect(raw,sr){
   // quitar componente continua y graves de ruido (filtro paso alto ~60 Hz)
   let mean=0;for(let i=0;i<raw.length;i++)mean+=raw[i];mean/=raw.length;
-  const hk=Math.exp(-2*Math.PI*60/sr);let py=0,px=raw[0]-mean;
-  for(let i=0;i<raw.length;i++){const xv=raw[i]-mean;py=hk*(py+xv-px);px=xv;HP[i]=py;}
+  const hk=Math.exp(-2*Math.PI*70/sr);
+  for(let pass=0;pass<2;pass++){let py=0,px=(pass?HP[0]:raw[0]-mean);
+    for(let i=0;i<raw.length;i++){const xv=pass?HP[i]:raw[i]-mean;py=hk*(py+xv-px);px=xv;HP[i]=py;}}
   const b=HP;
   let rms=0;for(let i=0;i<W+MAXLAG;i++)rms+=b[i]*b[i];rms=Math.sqrt(rms/(W+MAXLAG));
   if(rms<RMS[+$("sens").value])return null;
-  const minLag=Math.floor(sr/4200),maxLag=Math.min(MAXLAG,Math.floor(sr/27));
+  const minLag=Math.floor(sr/4200),maxLag=Math.min(MAXLAG,Math.floor(sr/62));
   const n=new Float32Array(maxLag+1);
   for(let t=minLag;t<=maxLag;t++){
     let ac=0,m=0;
@@ -210,10 +214,12 @@ function detect(raw,sr){
 let frame=0;
 function loop(){
   requestAnimationFrame(loop);
-  if(!listening||(frame++%2))return;
+  if(!listening||(frame++%2)){ if(!listening)$("meter").style.width="0"; return; }
   analyser.getFloatTimeDomainData(buf);
+  let lv=0;for(let i=0;i<buf.length;i+=4)lv+=buf[i]*buf[i];lv=Math.sqrt(lv/(buf.length/4));
+  $("meter").style.width=Math.min(100,Math.sqrt(lv/0.05)*100)+"%";
   const r=detect(buf,ctx.sampleRate);
-  if(!r||r.f<27||r.f>4200)return;
+  if(!r||r.f<62||r.f>4200)return;
   const midi=Math.round(12*Math.log2(r.f/440)+69),pc=((midi%12)+12)%12;
   counts[pc]=(counts[pc]||0)+1;
   if($("optHear").checked){

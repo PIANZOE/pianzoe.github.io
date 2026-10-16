@@ -52,9 +52,11 @@ h1{margin:0}
 .hear{font-size:.95rem;color:var(--soft);margin:-.4rem 0 1rem;min-height:1.5em}
 .hear b{color:var(--ink)}
 
-.piano{position:relative;height:7rem;display:flex;margin:0 auto;max-width:24rem}
+.piano{position:relative;height:9rem;user-select:none;-webkit-user-select:none;display:flex;margin:0 auto;max-width:24rem}
 .wk{flex:1;background:var(--white-key);border:1px solid var(--line);border-radius:0 0 .45rem .45rem;margin:0 1px}
 .bk{position:absolute;top:0;width:9%;height:60%;background:var(--black-key);border-radius:0 0 .35rem .35rem;z-index:2}
+.wk,.bk{cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.wk.press{background:#C9D0DE} .bk.press{background:#4A5570}
 .wk.on,.bk.on{background:var(--felt)} .wk.heard,.bk.heard{box-shadow:inset 0 -.6rem 0 var(--ok)}
 
 .controls{margin-top:1.5rem;display:grid;gap:1.1rem}
@@ -84,11 +86,10 @@ legend{font-weight:600;margin-bottom:.4rem}
   <section class="stage">
     <p class="note" id="note">🎹</p>
     <p class="verdict" id="verdict" aria-live="polite"></p>
-    <p class="hint" id="hint">Pulsa Empezar y permite el micrófono.</p>
+    <p class="hint" id="hint">Pulsa Empezar y permite el micrófono. Puedes tocar en tu piano o en las teclas de la pantalla.</p>
     <div class="bar"><i id="bar"></i></div>
     <div class="meter" aria-hidden="true"><i id="meter"></i></div>
     <p class="hear" id="hear"></p>
-    <p class="diag" id="diag"></p>
     <div class="piano" id="piano" aria-hidden="true"></div>
   </section>
 
@@ -142,6 +143,32 @@ const keyEls={};
 [{s:1,a:0},{s:3,a:1},{s:6,a:3},{s:8,a:4},{s:10,a:5}].forEach(b=>{
   const k=document.createElement("div");k.className="bk";k.style.left=`calc(${(b.a+1)*(100/7)}% - 4.5%)`;
   $("piano").appendChild(k);keyEls[b.s]=k;});
+/* Sonido de piano sintetizado al pulsar una tecla en pantalla */
+function pianoTone(semi){
+  try{
+    if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();
+    if(ctx.state!=="running")ctx.resume();
+    const f=261.63*Math.pow(2,semi/12),t=ctx.currentTime;
+    const out=ctx.createGain();out.gain.setValueAtTime(0.0001,t);
+    out.gain.exponentialRampToValueAtTime(0.5,t+0.008);
+    out.gain.exponentialRampToValueAtTime(0.12,t+0.4);
+    out.gain.exponentialRampToValueAtTime(0.0001,t+2.2);
+    out.connect(ctx.destination);
+    [[1,1],[2,0.45],[3,0.25],[4,0.12],[5,0.08],[6,0.04]].forEach(([h,a])=>{
+      const o=ctx.createOscillator(),g=ctx.createGain();
+      o.type="sine";o.frequency.value=f*h*(1+0.0004*h*h);g.gain.value=a*0.35;
+      o.connect(g);g.connect(out);o.start(t);o.stop(t+2.3);
+    });
+  }catch(e){}
+}
+let tapped=null;
+Object.entries(keyEls).forEach(([s,k])=>{
+  k.addEventListener("pointerdown",e=>{
+    e.preventDefault();const semi=+s;
+    pianoTone(semi);k.classList.add("press");setTimeout(()=>k.classList.remove("press"),180);
+    if(listening)tapped=semi;
+  });
+});
 function keys(target,heard){
   Object.entries(keyEls).forEach(([s,k])=>{k.classList.toggle("on",+s===target);k.classList.toggle("heard",+s===heard);});
 }
@@ -223,8 +250,6 @@ function loop(){
   let lv=0;for(let i=0;i<buf.length;i+=4)lv+=buf[i]*buf[i];lv=Math.sqrt(lv/(buf.length/4));
   $("meter").style.width=Math.min(100,Math.sqrt(lv/0.05)*100)+"%";
   lastClar=0;const r=detect(buf,ctx.sampleRate);
-  const dg=$("diag");
-  if(dg) dg.textContent="Micrófono: nivel "+Math.round(lv*1000)+" · "+(r?Math.round(r.f)+" Hz ("+PC_NAMES[((Math.round(12*Math.log2(r.f/440)+69)%12)+12)%12]+") claridad "+r.clarity.toFixed(2):"sin tono claro ("+lastClar.toFixed(2)+")");
   if(!r||r.f<62||r.f>2100)return;
   const midi=Math.round(12*Math.log2(r.f/440)+69),pc=((midi%12)+12)%12;
   counts[pc]=(counts[pc]||0)+1;
@@ -245,16 +270,18 @@ async function round(id){
   hintEl.textContent="Escucha…";barEl.style.width="0";
   await play(n.t);if(id!==runId)return;
 
-  counts={};lastPc=null;listening=true;hintEl.textContent="¡Toca la nota!";
+  counts={};lastPc=null;tapped=null;listening=true;hintEl.textContent="¡Toca la nota!";
   const total=+$("answer").value*1000,t0=performance.now();
   while(performance.now()-t0<total){
     if(id!==runId){listening=false;return;}
+    if(tapped!==null){await sleep(500);break;}
     barEl.style.width=((performance.now()-t0)/total*100)+"%";await sleep(50);
   }
   listening=false;barEl.style.width="100%";
 
   let best=null,bestN=0;for(const k in counts)if(counts[k]>bestN){bestN=counts[k];best=+k;}
   if(bestN<2)best=null;
+  if(tapped!==null)best=tapped;
   tries++;noteEl.textContent=n.sym;keys(n.s,best);
   hearEl.innerHTML=best===null?"Oigo: —":"Ha tocado: <b>"+PC_NAMES[best]+"</b>";
   if(best===n.s){

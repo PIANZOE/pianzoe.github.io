@@ -1,7 +1,7 @@
 {
   "name": "App PianZoe",
   "short_name": "PianZoe",
-  "description": "Creada por el papá de Zoe para practicar las notas del piano jugando.",
+  "description": "Creada por Zoe para practicar las notas del piano jugando.",
   "lang": "es",
   "start_url": "./",
   "scope": "./",

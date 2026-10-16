@@ -1,7 +1,7 @@
 {
-  "name": "App Pianzoe by papá",
-  "short_name": "Pianzoe",
-  "description": "Practica las notas del piano: la app dice una nota y te corrige al tocarla.",
+  "name": "App PianZoe",
+  "short_name": "PianZoe",
+  "description": "Creada por el papá de Zoe para practicar las notas del piano jugando.",
   "lang": "es",
   "start_url": "./",
   "scope": "./",

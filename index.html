@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>App Pianzoe by papá</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#B3263E">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pianzoe">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎹</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -99,6 +105,8 @@ legend{font-weight:600;margin-bottom:.4rem}
       <button class="primary" id="toggle">Empezar</button>
       <button id="reset">Reiniciar marcador</button>
     </div>
+    <button id="install" hidden>Instalar la app en este móvil</button>
+    <p class="hint" id="iosHint" hidden style="margin:0">Para instalarla en iPhone: pulsa Compartir y luego "Añadir a pantalla de inicio".</p>
 
     <div class="slider">
       <label for="answer"><span>Tiempo para tocar la nota</span><span id="answerVal">5 s</span></label>
@@ -314,6 +322,14 @@ $("toggle").onclick=()=>{ if(running){stop();return;} unlockAudio(); start(); };
 $("reset").onclick=()=>{hits=0;tries=0;score();};
 $("answer").oninput=e=>$("answerVal").textContent=e.target.value+" s";
 $("sens").oninput=e=>$("sensVal").textContent=["","Baja","Media","Alta"][e.target.value];
+/* App instalable */
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));}
+let installEvt=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;$("install").hidden=false;});
+$("install").onclick=async()=>{if(!installEvt)return;installEvt.prompt();await installEvt.userChoice.catch(()=>{});installEvt=null;$("install").hidden=true;};
+window.addEventListener("appinstalled",()=>{$("install").hidden=true;});
+const standalone=window.matchMedia("(display-mode: standalone)").matches||navigator.standalone;
+if(/iphone|ipad|ipod/i.test(navigator.userAgent)&&!standalone)$("iosHint").hidden=false;
 </script>
 </body>
 </html>

@@ -154,7 +154,7 @@ function pick(){const p=pool();if(!p.length)return null;let n;
 const player=new Audio();
 function play(key){return new Promise(res=>{
   player.pause();player.src=CLIPS[key];player.currentTime=0;
-  player.onended=res;player.onerror=res;player.play().catch(res);});}
+  player.onended=res;player.onerror=res;player.play().catch(()=>{hintEl.textContent="El navegador bloqueó el sonido: pulsa Parar y Empezar otra vez.";res();});});}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* Micrófono y detección de tono */
@@ -164,7 +164,7 @@ async function initMic(){
   if(!navigator.mediaDevices?.getUserMedia){micError("Este navegador no permite usar el micrófono aquí.");return false;}
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
-    ctx=new (window.AudioContext||window.webkitAudioContext)();
+    if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();
     const src=ctx.createMediaStreamSource(stream);
     analyser=ctx.createAnalyser();analyser.fftSize=2048;src.connect(analyser);
     buf=new Float32Array(analyser.fftSize);
@@ -174,7 +174,13 @@ async function initMic(){
 function micError(msg){$("micWarn").textContent=msg;$("micWarn").hidden=false;}
 const RMS=[0,0.03,0.012,0.005];
 const W=1024,MAXLAG=1024;
-function detect(b,sr){
+const HP=new Float32Array(2048);
+function detect(raw,sr){
+  // quitar componente continua y graves de ruido (filtro paso alto ~60 Hz)
+  let mean=0;for(let i=0;i<raw.length;i++)mean+=raw[i];mean/=raw.length;
+  const hk=Math.exp(-2*Math.PI*60/sr);let py=0,px=raw[0]-mean;
+  for(let i=0;i<raw.length;i++){const xv=raw[i]-mean;py=hk*(py+xv-px);px=xv;HP[i]=py;}
+  const b=HP;
   let rms=0;for(let i=0;i<W+MAXLAG;i++)rms+=b[i]*b[i];rms=Math.sqrt(rms/(W+MAXLAG));
   if(rms<RMS[+$("sens").value])return null;
   const minLag=Math.floor(sr/4200),maxLag=Math.min(MAXLAG,Math.floor(sr/27));
@@ -195,7 +201,7 @@ function detect(b,sr){
   }
   if(!peaks.length)return null;
   let mx=0;peaks.forEach(p=>{if(n[p]>mx)mx=n[p];});
-  if(mx<0.6)return null;
+  if(mx<0.5)return null;
   const p=peaks.find(p=>n[p]>=0.88*mx);
   const a=n[p-1],c=n[p+1],d=a-2*n[p]+c;
   const T=d?p+(a-c)/(2*d):p;
@@ -251,14 +257,21 @@ async function round(id){
   if(id!==runId)return;await sleep(1200);
   if(id===runId&&running)round(id);
 }
+/* Desbloquear audio dentro del mismo toque (Chrome/Safari exigen gesto del usuario) */
+let unlocked=false;
+function unlockAudio(){
+  try{ if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)(); ctx.resume(); }catch(e){}
+  if(!unlocked){ try{ player.src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="; const p=player.play(); if(p)p.then(()=>{unlocked=true;}).catch(()=>{}); }catch(e){} }
+}
 async function start(){
   $("micWarn").hidden=true;
   const ok=await initMic();if(!ok)return;
-  if(ctx.state==="suspended")await ctx.resume();
+  if(ctx.state!=="running"){ try{await ctx.resume();}catch(e){} }
+  if(ctx.state!=="running"){ hintEl.textContent="Pulsa Empezar otra vez para activar el sonido."; return; }
   running=true;runId++;$("toggle").textContent="Parar";round(runId);
 }
 function stop(){running=false;runId++;listening=false;player.pause();$("toggle").textContent="Empezar";hintEl.textContent="En pausa.";}
-$("toggle").onclick=()=>running?stop():start();
+$("toggle").onclick=()=>{ if(running){stop();return;} unlockAudio(); start(); };
 $("reset").onclick=()=>{hits=0;tries=0;score();};
 $("answer").oninput=e=>$("answerVal").textContent=e.target.value+" s";
 $("sens").oninput=e=>$("sensVal").textContent=["","Baja","Media","Alta"][e.target.value];
